@@ -128,6 +128,61 @@ h_glm_quasipoisson <- function(.var,
   )
 }
 
+#' @describeIn h_glm_count Helper function to return results of a negative binomial model.
+#'
+#' @param .df_row (`data.frame`)\cr data set that includes all the variables that are called
+#'   in `.var` and `variables`.
+#' @param variables (named `list` of `strings`)\cr list of additional analysis variables, with
+#'   expected elements:
+#'   * `arm` (`string`)\cr group variable, for which the covariate adjusted means of multiple
+#'     groups will be summarized. Specifically, the first level of `arm` variable is taken as the
+#'     reference group.
+#'   * `covariates` (`character`)\cr a vector that can contain single variable names (such as
+#'     `"X1"`), and/or interaction terms indicated by `"X1 * X2"`.
+#' @param `weights`(`character`)\cr a character vector specifying weights used
+#'   in averaging predictions. Number of weights must equal the number of levels included in the covariates.
+#'   Weights option passed to emmeans function (hyperlink) (link to emmeans documentation)
+#'
+#' @return
+#' * `h_glm_negbin()` returns the results of a Negative Binomial model.
+#'
+#' @keywords internal
+h_glm_negbin <- function(.var,
+                         .df_row,
+                         variables,
+                         weights) {
+  arm <- variables$arm
+  covariates <- variables$covariates
+
+  formula <- stats::as.formula(paste0(
+    .var, " ~ ",
+    " + ",
+    paste(covariates, collapse = " + "),
+    " + ",
+    arm
+  ))
+
+  glm_fit <- MASS::glm.nb(
+    formula = formula,
+    data = .df_row,
+    link = "log"
+  )
+
+  emmeans_fit <- emmeans::emmeans(
+    glm_fit,
+    specs = arm,
+    data = .df_row,
+    type = "response",
+    offset = 0,
+    weights = weights
+  )
+
+  list(
+    glm_fit = glm_fit,
+    emmeans_fit = emmeans_fit
+  )
+}
+
 #' @describeIn h_glm_count Helper function to return the results of the
 #'   selected model (poisson, quasipoisson, negative binomial).
 #'
@@ -143,7 +198,7 @@ h_glm_quasipoisson <- function(.var,
 #'   * `offset` (`numeric`)\cr a numeric vector or scalar adding an offset.
 #' @param `weights`(`character`)\cr character vector specifying weights used in averaging predictions.
 #' @param `distribution`(`character`)\cr a character value specifying the distribution
-#'   used in the regression (poisson, quasipoisson).
+#'   used in the regression (poisson, quasipoisson, negative binomial).
 #'
 #' @return
 #' * `h_glm_count()` returns the results of the selected model.
@@ -155,13 +210,10 @@ h_glm_count <- function(.var,
                         variables,
                         distribution,
                         weights) {
-  if (distribution == "negbin") {
-    stop("negative binomial distribution is not currently available.")
-  }
   switch(distribution,
     poisson = h_glm_poisson(.var, .df_row, variables, weights),
     quasipoisson = h_glm_quasipoisson(.var, .df_row, variables, weights),
-    negbin = list() # h_glm_negbin(.var, .df_row, variables, weights) # nolint
+    negbin = h_glm_negbin(.var, .df_row, variables, weights)
   )
 }
 
@@ -362,7 +414,7 @@ a_glm_count <- make_afun(
 #' lyt <- basic_table() %>%
 #'   split_cols_by("ARM", ref_group = "B: Placebo") %>%
 #'   add_colcounts() %>%
-#'   analyze_vars(
+#'   summarize_vars(
 #'     "AVAL_f",
 #'     var_labels = "Number of exacerbations per patient",
 #'     .stats = c("count_fraction"),
